@@ -36,9 +36,18 @@
 
 const uint32_t valid_flag = 0xAAAAAAAA;
 const uint32_t pending_flag = 0xBBBBBBBB;
+const uint32_t reset_flag = 0xDDDDDDDD;
+const uint8_t ready_response = 0x78;
 uint8_t already_marked = 0;
 uint8_t tx_buff[] = "In New program\r\n";
 uint8_t tx_buff2[] = "Its been 5 seconds\r\n";
+uint8_t tx_buff3[] = "Jumping back to bootloader\r\n";
+uint8_t rx_byte;
+uint8_t rx_index = 0;
+typedef enum {WAIT_START_1, WAIT_START_2, WAIT_OTA_SEQUENCE, RECEIVE_PACKET} rx_state_t; // State machine for rx_packets
+rx_state_t rx_state = WAIT_START_1;
+uint8_t ota_start_count = 0;
+volatile uint8_t rx_start_ota_flag = 0; 
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +58,7 @@ uint8_t tx_buff2[] = "Its been 5 seconds\r\n";
 /* Private variables ---------------------------------------------------------*/
 IWDG_HandleTypeDef hiwdg;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -60,6 +70,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_IWDG_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -100,12 +111,14 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_IWDG_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   uint32_t flag = *(uint32_t*)FLASH_FLAG_START;
   //char msg[30] = {0};
   //sprintf(msg, "After Jump Flag: %X\r\n", flag);
   //HAL_UART_Transmit_IT(&huart2, msg, sizeof(msg));
   uint16_t flash_packet_number = *(uint16_t*)FLASH_SIZE_START;
+  HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -115,23 +128,26 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	    IWDG->KR = 0xAAAA;
+    IWDG->KR = 0xAAAA;
 
-        HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-        //printf("In New Program\r\n");
-        HAL_UART_Transmit_IT(&huart2, tx_buff, sizeof(tx_buff));
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    //printf("In New Program\r\n");
+    HAL_UART_Transmit_IT(&huart2, tx_buff, sizeof(tx_buff));
 
-        if((!already_marked) && (HAL_GetTick()> 5000) && (flag == pending_flag)){
-        	// Set flag and then reset back to bootloader
-        	HAL_UART_Transmit_IT(&huart2, tx_buff2, sizeof(tx_buff2));
-        	already_marked = 1;
-            ota_flash_erase_staging(FLASH_FLAG_SECTOR);
-            ota_flash_write(FLASH_FLAG_START, (uint8_t*)&valid_flag, sizeof(valid_flag));
-            ota_flash_write(FLASH_SIZE_START, (uint8_t*)&flash_packet_number, sizeof(flash_packet_number)); // Put packet number into flash to use later
-            //HAL_Delay(10);
-            //NVIC_SystemReset();
-        }
-	    HAL_Delay(500);
+    if((!already_marked) && (HAL_GetTick()> 5000) && (flag == pending_flag)){
+      // Set flag and then reset back to bootloader
+      HAL_UART_Transmit_IT(&huart2, tx_buff2, sizeof(tx_buff2));
+      already_marked = 1;
+      ota_flash_erase_staging(FLASH_FLAG_SECTOR);
+      ota_flash_write(FLASH_FLAG_START, (uint8_t*)&valid_flag, sizeof(valid_flag));
+      ota_flash_write(FLASH_SIZE_START, (uint8_t*)&flash_packet_number, sizeof(flash_packet_number)); // Put packet number into flash to use later
+    }
+    if(rx_start_ota_flag){
+      ota_flash_erase_staging(FLASH_FLAG_SECTOR);
+      ota_flash_write(FLASH_FLAG_START, (uint8_t*)&reset_flag, sizeof(reset_flag));
+      NVIC_SystemReset();
+    }
+    HAL_Delay(500);
 
   }
   /* USER CODE END 3 */
@@ -209,6 +225,39 @@ static void MX_IWDG_Init(void)
   /* USER CODE BEGIN IWDG_Init 2 */
 
   /* USER CODE END IWDG_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
@@ -299,6 +348,38 @@ GETCHAR_PROTOTYPE
 
      HAL_UART_Receive(&huart2, (uint8_t *)&ch, 1, 5);
      return ch;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if(huart->Instance == USART1)
+  {
+    switch(rx_state)
+    {
+      case WAIT_START_1: // Waiting for first delim
+        if(rx_byte == TX_START_DELIM_1)
+            rx_state = WAIT_START_2;
+        break;
+      case WAIT_START_2: // Watiing for second delim
+        if(rx_byte == TX_START_DELIM_2)
+        {
+            rx_index = 0; // Start collecting packet
+            rx_state = WAIT_OTA_SEQUENCE;
+        }
+        else
+            rx_state = WAIT_START_1; // Not a valid start
+        break;
+      case WAIT_OTA_SEQUENCE:
+        if(rx_byte == TX_START_OTA_HEX) {
+          ota_start_count++;
+          if(ota_start_count >= 7) {
+            rx_start_ota_flag = 1;
+          }
+        }
+        break;
+    }
+    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+  }
 }
 /* USER CODE END 4 */
 
