@@ -128,7 +128,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    IWDG->KR = 0xAAAA;
+    //IWDG->KR = 0xAAAA;
 
     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
     //printf("In New Program\r\n");
