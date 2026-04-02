@@ -118,6 +118,11 @@ int main(void)
   //sprintf(msg, "After Jump Flag: %X\r\n", flag);
   //HAL_UART_Transmit_IT(&huart2, msg, sizeof(msg));
   uint16_t flash_packet_number = *(uint16_t*)FLASH_SIZE_START;
+  uint8_t flash_run_count = *(uint8_t*)FLASH_COUNT_START;
+  if(flash_run_count == 0xFF){
+    // Then reset cause we have nothing
+    flash_run_count = 0;
+  }
   HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
   /* USER CODE END 2 */
 
@@ -135,12 +140,19 @@ int main(void)
     HAL_UART_Transmit_IT(&huart2, tx_buff, sizeof(tx_buff));
 
     if((!already_marked) && (HAL_GetTick()> 5000) && (flag == pending_flag)){
+      flash_run_count++;
       // Set flag and then reset back to bootloader
       HAL_UART_Transmit_IT(&huart2, tx_buff2, sizeof(tx_buff2));
       already_marked = 1;
       ota_flash_erase_staging(FLASH_FLAG_SECTOR);
+      if(flash_run_count < 4){
+      ota_flash_write(FLASH_FLAG_START, (uint8_t*)&flag, sizeof(flag));
+      ota_flash_write(FLASH_SIZE_START, (uint8_t*)&flash_packet_number, sizeof(flash_packet_number)); // Put packet number into flash to use later
+      ota_flash_write(FLASH_COUNT_START, (uint8_t*)&flash_run_count, sizeof(flash_run_count)); 
+      }else{
       ota_flash_write(FLASH_FLAG_START, (uint8_t*)&valid_flag, sizeof(valid_flag));
       ota_flash_write(FLASH_SIZE_START, (uint8_t*)&flash_packet_number, sizeof(flash_packet_number)); // Put packet number into flash to use later
+      }
     }
     if(rx_start_ota_flag){
       ota_flash_erase_staging(FLASH_FLAG_SECTOR);
