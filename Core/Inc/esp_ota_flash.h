@@ -33,6 +33,7 @@
 #define FLASH_FLAG_SECTOR	  3
 
 #define FLASH_SIZE_START      (FLASH_FLAG_START + (sizeof(uint32_t))) // Starts after our packet count flag
+#define FLASH_VALID_COUNT_START      (FLASH_SIZE_START + (sizeof(uint32_t))) // Starts after our packet count flag 
 
 #define TX_START_OTA_HEX      0xFE
 
